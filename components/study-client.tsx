@@ -281,12 +281,6 @@ export function StudyClient({
     submission.submitted &&
     (index < data.questions.length - 1 || (mode === "review" && reviewFilter !== "recent"));
 
-  const actionHint = !selectedLabel
-    ? "보기를 하나 선택한 뒤 정답 및 해설 카드를 누르세요."
-    : !submission.submitted
-      ? "정답 및 해설 카드를 누르면 제출됩니다."
-      : "정답 및 해설 카드를 한 번 더 누르면 다음 문제로 넘어갑니다.";
-
   function buildStudyQuery(
     nextMode: StudyMode,
     nextFilter: ReviewFilter,
@@ -583,7 +577,7 @@ export function StudyClient({
                 disabled={submission.submitted}
                 onClick={() => setSelectedLabel(choice.label)}
                 className={cn(
-                  "flex min-h-12 w-full items-start gap-3 rounded-[20px] border px-3.5 py-2.5 text-left transition-all duration-150",
+                  "flex min-h-14 w-full items-center gap-3 rounded-[20px] border px-3.5 py-3 text-left transition-all duration-150 sm:min-h-[3.75rem] sm:py-3.5",
                   "border-black/10 bg-[#f8fbff] hover:border-pine/25 hover:bg-[#edf5fd] active:translate-y-px active:shadow-[inset_0_2px_8px_rgba(16,35,63,0.14)]",
                   isSelected &&
                     "border-pine bg-[#dcecff] shadow-[inset_0_2px_10px_rgba(0,91,170,0.18)] ring-1 ring-pine/12",
@@ -595,7 +589,7 @@ export function StudyClient({
               >
                 <span
                   className={cn(
-                    "mt-0.5 font-semibold text-pine",
+                    "font-semibold text-pine",
                     submission.submitted && isWrongSelection && "text-rose"
                   )}
                 >
@@ -652,10 +646,6 @@ export function StudyClient({
           >
             다음 문제
           </SecondaryAction>
-        </div>
-
-        <div className="mt-3 rounded-2xl border border-black/8 bg-white/70 px-4 py-2.5 text-sm text-ink/68">
-          {actionHint}
         </div>
 
         <div className="hidden">
