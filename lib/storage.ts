@@ -340,6 +340,7 @@ export async function submitAttempt({
   const isCorrect = question.answer.label === payload.selectedLabel;
   const attemptedAt = new Date().toISOString();
   const supabase = getSupabaseClient();
+  let activeReviewDelta: -1 | 0 | 1 = 0;
 
   if (!supabase) {
     const db = await readDb();
@@ -359,10 +360,14 @@ export async function submitAttempt({
 
     if (!isCorrect) {
       if (reviewItem) {
+        if (reviewItem.status !== "active") {
+          activeReviewDelta = 1;
+        }
         reviewItem.status = "active";
         reviewItem.wrongCount += 1;
         reviewItem.lastWrongAt = attemptedAt;
       } else {
+        activeReviewDelta = 1;
         db.reviewItems.push({
           sessionId,
           questionId: payload.questionId,
@@ -373,6 +378,9 @@ export async function submitAttempt({
         });
       }
     } else if (reviewItem) {
+      if (reviewItem.status === "active") {
+        activeReviewDelta = -1;
+      }
       reviewItem.status = "resolved";
     }
 
@@ -392,7 +400,10 @@ export async function submitAttempt({
     await writeDb(db);
 
     return {
+      questionId: payload.questionId,
       isCorrect,
+      isPastExam: question.isPastExam,
+      activeReviewDelta,
       correctLabel: question.answer.label,
       correctText: question.answer.text
     };
@@ -415,6 +426,7 @@ export async function submitAttempt({
     .maybeSingle();
 
   if (!isCorrect) {
+    activeReviewDelta = reviewItem?.status === "active" ? 0 : 1;
     await supabase.from("review_items").upsert(
       {
         session_id: sessionId,
@@ -427,6 +439,9 @@ export async function submitAttempt({
       { onConflict: "session_id,question_id" }
     );
   } else if (reviewItem) {
+    if (reviewItem.status === "active") {
+      activeReviewDelta = -1;
+    }
     await supabase
       .from("review_items")
       .update({ status: "resolved" })
@@ -444,7 +459,10 @@ export async function submitAttempt({
   );
 
   return {
+    questionId: payload.questionId,
     isCorrect,
+    isPastExam: question.isPastExam,
+    activeReviewDelta,
     correctLabel: question.answer.label,
     correctText: question.answer.text
   };

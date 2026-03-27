@@ -107,10 +107,12 @@ export type StudyPayload = {
 };
 
 export type AttemptResult = {
+  questionId: string;
   isCorrect: boolean;
+  isPastExam: boolean;
+  activeReviewDelta: -1 | 0 | 1;
   correctLabel: string | null;
   correctText: string;
-  progress: ProgressSummary;
 };
 
 export type WrongQuestionSummary = {

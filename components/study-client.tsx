@@ -41,6 +41,14 @@ type QuestionViewState = {
   showSolution: boolean;
 };
 
+type QueuedAttempt = {
+  questionId: string;
+  selectedLabel: string;
+  mode: StudyMode;
+};
+
+const ATTEMPT_QUEUE_KEY = "psm-pending-attempts";
+
 function createEmptySubmission(): SubmissionState {
   return {
     submitted: false,
@@ -59,6 +67,37 @@ function isSameSubmission(left: SubmissionState, right: SubmissionState) {
     left.correctText === right.correctText &&
     left.submittedAt === right.submittedAt
   );
+}
+
+function readQueuedAttempts(): QueuedAttempt[] {
+  if (typeof window === "undefined") {
+    return [];
+  }
+
+  try {
+    const raw = window.localStorage.getItem(ATTEMPT_QUEUE_KEY);
+    if (!raw) {
+      return [];
+    }
+
+    const parsed = JSON.parse(raw) as QueuedAttempt[];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeQueuedAttempts(queue: QueuedAttempt[]) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  if (!queue.length) {
+    window.localStorage.removeItem(ATTEMPT_QUEUE_KEY);
+    return;
+  }
+
+  window.localStorage.setItem(ATTEMPT_QUEUE_KEY, JSON.stringify(queue));
 }
 
 export function StudyClient({
@@ -87,7 +126,9 @@ export function StudyClient({
   const [feedbackState, setFeedbackState] = useState<FeedbackState>(null);
   const [error, setError] = useState<string | null>(null);
   const [questionStateMap, setQuestionStateMap] = useState<Record<string, QuestionViewState>>({});
+  const [syncPending, setSyncPending] = useState(false);
   const questionStateMapRef = useRef(questionStateMap);
+  const flushInFlightRef = useRef(false);
 
   const currentQuestion = data.questions[index] ?? null;
   const currentQuestionId = currentQuestion?.id ?? null;
@@ -159,6 +200,72 @@ export function StudyClient({
 
     return () => window.clearTimeout(timeout);
   }, [feedbackState]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function flushQueuedAttempts() {
+      if (flushInFlightRef.current) {
+        return;
+      }
+
+      const queue = readQueuedAttempts();
+      if (!queue.length) {
+        if (!cancelled) {
+          setSyncPending(false);
+          setError(null);
+        }
+        return;
+      }
+
+      flushInFlightRef.current = true;
+      if (!cancelled) {
+        setSyncPending(true);
+      }
+
+      const remaining: QueuedAttempt[] = [];
+
+      for (const attempt of queue) {
+        try {
+          const response = await fetch("/api/attempts", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(attempt),
+            keepalive: true
+          });
+
+          if (!response.ok) {
+            remaining.push(attempt);
+          }
+        } catch {
+          remaining.push(attempt);
+        }
+      }
+
+      writeQueuedAttempts(remaining);
+      flushInFlightRef.current = false;
+
+      if (!cancelled) {
+        setSyncPending(remaining.length > 0);
+        setError(remaining.length > 0 ? "일부 학습 기록을 다시 저장 중입니다." : null);
+      }
+    }
+
+    void flushQueuedAttempts();
+
+    function handleOnline() {
+      void flushQueuedAttempts();
+    }
+
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("focus", handleOnline);
+
+    return () => {
+      cancelled = true;
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("focus", handleOnline);
+    };
+  }, []);
 
   const solvedCountInCurrentMode = useMemo(() => {
     const solvedSet = new Set(progress.solvedQuestionIds);
@@ -241,45 +348,94 @@ export function StudyClient({
     router.replace(`/study?${query.toString()}`);
   }
 
-  async function handleSubmit() {
-    if (!currentQuestion || !selectedLabel || submission.submitted) {
-      return;
-    }
+  function updateProgressOptimistically(result: AttemptResult) {
+    setProgress((current) => {
+      const solvedQuestionIds = current.solvedQuestionIds.includes(result.questionId)
+        ? current.solvedQuestionIds
+        : [...current.solvedQuestionIds, result.questionId];
+      const totalSolved = solvedQuestionIds.length;
+      const correctCount = current.correctCount + (result.isCorrect ? 1 : 0);
+      const wrongCount = current.wrongCount + (result.isCorrect ? 0 : 1);
+      const totalAttempts = correctCount + wrongCount;
+      const pastExamSolved =
+        result.isPastExam && !current.solvedQuestionIds.includes(result.questionId)
+          ? current.pastExamSolved + 1
+          : current.pastExamSolved;
 
-    setError(null);
+      return {
+        ...current,
+        solvedQuestionIds,
+        totalSolved,
+        correctCount,
+        wrongCount,
+        accuracy: totalAttempts ? (correctCount / totalAttempts) * 100 : 0,
+        activeReviewCount: Math.max(0, current.activeReviewCount + result.activeReviewDelta),
+        pastExamSolved,
+        resumeQuestionId: result.questionId,
+        preferences: {
+          ...current.preferences,
+          lastMode: mode,
+          lastQuestionId: result.questionId
+        }
+      };
+    });
+  }
 
+  async function persistAttemptInBackground(payload: QueuedAttempt) {
     try {
       const response = await fetch("/api/attempts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          questionId: currentQuestion.id,
-          selectedLabel,
-          mode
-        })
+        body: JSON.stringify(payload),
+        keepalive: true
       });
 
       if (!response.ok) {
         throw new Error("submit_failed");
       }
 
-      const result = (await response.json()) as AttemptResult;
-
-      setSubmission({
-        submitted: true,
-        isCorrect: result.isCorrect,
-        correctLabel: result.correctLabel,
-        correctText: result.correctText,
-        submittedAt: new Date().toISOString()
-      });
-      setShowSolution(true);
-      setFeedbackState(result.isCorrect ? "correct" : "wrong");
-      playFeedbackSound(result.isCorrect ? "correct" : "wrong");
-
-      setProgress(result.progress);
+      setError(null);
     } catch {
-      setError("저장 중 문제가 생겼습니다. 다시 제출해 주세요.");
+      const queue = [...readQueuedAttempts(), payload];
+      writeQueuedAttempts(queue);
+      setSyncPending(true);
+      setError("학습 기록을 임시 보관했습니다. 네트워크가 안정되면 자동 저장됩니다.");
     }
+  }
+
+  function handleSubmit() {
+    if (!currentQuestion || !selectedLabel || submission.submitted) {
+      return;
+    }
+
+    setError(null);
+    const isCorrect = currentQuestion.answer.label === selectedLabel;
+    const result: AttemptResult = {
+      questionId: currentQuestion.id,
+      isCorrect,
+      isPastExam: currentQuestion.isPastExam,
+      activeReviewDelta: isCorrect ? -1 : 1,
+      correctLabel: currentQuestion.answer.label,
+      correctText: currentQuestion.answer.text
+    };
+
+    setSubmission({
+      submitted: true,
+      isCorrect: result.isCorrect,
+      correctLabel: result.correctLabel,
+      correctText: result.correctText,
+      submittedAt: new Date().toISOString()
+    });
+    setShowSolution(true);
+    setFeedbackState(result.isCorrect ? "correct" : "wrong");
+    playFeedbackSound(result.isCorrect ? "correct" : "wrong");
+    updateProgressOptimistically(result);
+
+    void persistAttemptInBackground({
+      questionId: currentQuestion.id,
+      selectedLabel,
+      mode
+    });
   }
 
   async function handleNext() {
@@ -310,7 +466,7 @@ export function StudyClient({
     }
 
     if (!submission.submitted) {
-      await handleSubmit();
+      handleSubmit();
       return;
     }
 
@@ -454,6 +610,12 @@ export function StudyClient({
         {error ? (
           <p className="mt-3 rounded-2xl border border-rose/20 bg-rose/10 px-4 py-3 text-sm text-rose">
             {error}
+          </p>
+        ) : null}
+
+        {syncPending && !error ? (
+          <p className="mt-3 rounded-2xl border border-posco/15 bg-posco/8 px-4 py-3 text-sm text-posco">
+            학습 기록을 백그라운드에서 저장 중입니다.
           </p>
         ) : null}
 

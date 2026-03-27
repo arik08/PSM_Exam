@@ -1,12 +1,11 @@
 import { Shell } from "@/components/shell";
 import { StatCard } from "@/components/stat-card";
 import { StatsResetButton, WrongQuestionsResetButton } from "@/components/stats-reset-button";
-import { fetchProgress, fetchWrongQuestions } from "@/lib/api";
+import { fetchStatsPayload } from "@/lib/api";
 import { formatKoreanDate, toPercent } from "@/lib/utils";
 
 export default async function StatsPage() {
-  const progress = await fetchProgress();
-  const wrongQuestions = await fetchWrongQuestions();
+  const { progress, wrongQuestions } = await fetchStatsPayload();
 
   return (
     <Shell
