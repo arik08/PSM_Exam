@@ -14,19 +14,18 @@ export function Shell({ title, eyebrow, description, children, actions, compact 
   return (
     <div className="min-h-screen bg-grain">
       <header className="sticky top-0 z-40 border-b border-black/5 bg-[#f8fbff]/92 backdrop-blur">
-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-pine/70">
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-2 px-4 py-2 sm:gap-4 sm:px-6 sm:py-3">
+          <div className="min-w-0">
+            <p className="hidden text-xs font-semibold uppercase tracking-[0.24em] text-pine/70 sm:block">
               {eyebrow}
             </p>
-            <Link href="/" className="font-serif text-xl text-ink sm:text-2xl">
+            <Link href="/" className="block whitespace-nowrap font-serif text-base text-ink sm:text-2xl">
               PSM Study
             </Link>
           </div>
-          <nav className="flex items-center gap-2 text-sm">
+          <nav className="flex flex-nowrap items-center gap-1 text-[11px] sm:gap-2 sm:text-sm">
             <NavLink href="/">홈</NavLink>
-            <NavLink href="/study?mode=all">문제 풀이</NavLink>
-            <NavLink href="/study?mode=review">오답 복습</NavLink>
+            <NavLink href="/study?mode=all&resume=1">이어풀기</NavLink>
             <NavLink href="/stats">통계</NavLink>
           </nav>
         </div>
@@ -66,7 +65,7 @@ function NavLink({ href, children }: { href: string; children: React.ReactNode }
     <Link
       href={href}
       className={cn(
-        "rounded-full border border-black/10 px-3 py-2 text-ink/70 transition hover:border-pine/30 hover:text-pine"
+        "whitespace-nowrap rounded-full border border-black/10 px-2.5 py-1.5 text-ink/70 transition hover:border-pine/30 hover:text-pine sm:px-3 sm:py-2"
       )}
     >
       {children}
