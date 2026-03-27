@@ -35,6 +35,22 @@ type SubmissionState = {
 
 type FeedbackState = "correct" | "wrong" | null;
 
+type QuestionViewState = {
+  selectedLabel: string | null;
+  submission: SubmissionState;
+  showSolution: boolean;
+};
+
+function createEmptySubmission(): SubmissionState {
+  return {
+    submitted: false,
+    isCorrect: false,
+    correctLabel: null,
+    correctText: "",
+    submittedAt: null
+  };
+}
+
 export function StudyClient({
   initialData,
   initialProgress,
@@ -55,17 +71,12 @@ export function StudyClient({
   const [orderMode, setOrderMode] = useState<OrderMode>(initialOrder);
   const [index, setIndex] = useState(0);
   const [selectedLabel, setSelectedLabel] = useState<string | null>(null);
-  const [submission, setSubmission] = useState<SubmissionState>({
-    submitted: false,
-    isCorrect: false,
-    correctLabel: null,
-    correctText: "",
-    submittedAt: null
-  });
+  const [submission, setSubmission] = useState<SubmissionState>(createEmptySubmission);
   const [showSolution, setShowSolution] = useState(false);
   const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
   const [feedbackState, setFeedbackState] = useState<FeedbackState>(null);
   const [error, setError] = useState<string | null>(null);
+  const [questionStateMap, setQuestionStateMap] = useState<Record<string, QuestionViewState>>({});
 
   const currentQuestion = data.questions[index] ?? null;
 
@@ -81,18 +92,32 @@ export function StudyClient({
   }, [data.questions, progress.resumeQuestionId, resume]);
 
   useEffect(() => {
-    setSelectedLabel(null);
-    setSubmission({
-      submitted: false,
-      isCorrect: false,
-      correctLabel: null,
-      correctText: "",
-      submittedAt: null
-    });
-    setShowSolution(false);
+    if (!currentQuestion) {
+      return;
+    }
+
+    const savedState = questionStateMap[currentQuestion.id];
+    setSelectedLabel(savedState?.selectedLabel ?? null);
+    setSubmission(savedState?.submission ?? createEmptySubmission());
+    setShowSolution(savedState?.showSolution ?? false);
     setFeedbackState(null);
     setError(null);
-  }, [index, mode, orderMode]);
+  }, [currentQuestion, questionStateMap]);
+
+  useEffect(() => {
+    if (!currentQuestion) {
+      return;
+    }
+
+    setQuestionStateMap((current) => ({
+      ...current,
+      [currentQuestion.id]: {
+        selectedLabel,
+        submission,
+        showSolution
+      }
+    }));
+  }, [currentQuestion, selectedLabel, submission, showSolution]);
 
   useEffect(() => {
     if (!feedbackState) {
@@ -236,6 +261,14 @@ export function StudyClient({
     }
 
     setIndex(0);
+  }
+
+  function handlePrevious() {
+    if (index <= 0) {
+      return;
+    }
+
+    setIndex((current) => current - 1);
   }
 
   async function handleSolutionAction() {
@@ -414,6 +447,12 @@ export function StudyClient({
           />
         </div>
 
+        <div className="mt-3 flex items-center gap-2">
+          <SecondaryAction onClick={handlePrevious} disabled={index === 0}>
+            이전 문제
+          </SecondaryAction>
+        </div>
+
         <div className="mt-3 rounded-2xl border border-black/8 bg-white/70 px-4 py-2.5 text-sm text-ink/68">
           {actionHint}
         </div>
@@ -426,7 +465,10 @@ export function StudyClient({
         </div>
 
         <div className="fixed inset-x-0 bottom-0 z-30 border-t border-black/8 bg-[#f8fbff]/96 px-4 py-3 shadow-[0_-12px_30px_rgba(16,35,63,.08)] backdrop-blur sm:hidden">
-          <div className="mx-auto grid max-w-2xl grid-cols-1 gap-2">
+          <div className="mx-auto grid max-w-2xl grid-cols-2 gap-2">
+            <SecondaryAction onClick={handlePrevious} disabled={index === 0}>
+              이전 문제
+            </SecondaryAction>
             <MobileAction onClick={() => void handleSolutionAction()} disabled={!selectedLabel && !submission.submitted}>
               {submission.submitted ? "정답 및 해설 / 다음" : "정답 및 해설"}
             </MobileAction>
@@ -815,6 +857,32 @@ function MobileAction({
       className={cn(
         "rounded-2xl border px-3 py-2.5 text-sm font-medium transition",
         disabled ? "border-dashed border-black/10 bg-black/5 text-ink/35" : "border-pine bg-pine text-white"
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+function SecondaryAction({
+  onClick,
+  disabled,
+  children
+}: {
+  onClick: () => void;
+  disabled?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={cn(
+        "rounded-2xl border px-3 py-2.5 text-sm font-medium transition",
+        disabled
+          ? "border-dashed border-black/10 bg-black/5 text-ink/35"
+          : "border-black/10 bg-white text-ink/75 hover:border-pine/30 hover:text-pine"
       )}
     >
       {children}
