@@ -14,32 +14,7 @@ export default async function HomePage() {
       description="이어풀기, 기출 학습, 오답 복습을 한 화면 흐름으로 정리했습니다."
       compact
     >
-      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <StatCard
-          label="진행률"
-          value={`${progress.totalSolved}/${progress.totalQuestions}`}
-          hint="한 번이라도 제출한 문항 수"
-          accent="pine"
-        />
-        <StatCard
-          label="정답률"
-          value={toPercent(progress.accuracy)}
-          hint={`${progress.correctCount}개 정답 / ${progress.wrongCount}개 오답`}
-        />
-        <StatCard
-          label="오답 복습"
-          value={`${progress.activeReviewCount}문항`}
-          hint="현재 active 상태의 복습 카드"
-          accent="rose"
-        />
-        <StatCard
-          label="기출 풀이"
-          value={`${progress.pastExamSolved}/${progress.pastExamCount}`}
-          hint="기출 문제만 따로 집계"
-        />
-      </section>
-
-      <section className="mt-4 grid gap-3 lg:grid-cols-2">
+      <section className="grid gap-3 lg:grid-cols-2">
         <ModeLink
           href={
             progress.resumeQuestionId
@@ -72,14 +47,39 @@ export default async function HomePage() {
 
       <section className="mt-4">
         <a href="/stats" className="block">
-        <article className="rounded-[28px] border border-[#0b4f95]/20 bg-[#0f4f91] p-5 text-white shadow-soft transition hover:-translate-y-1">
-          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-white/60">Stats View</p>
-          <h2 className="mt-2 font-serif text-2xl sm:text-[1.8rem]">통계 보기</h2>
-          <p className="mt-2 text-sm leading-6 text-white/72">
-            누적 정답률, 최근 오답, 기출 풀이율, 마지막 학습 모드를 한 번에 점검할 수 있습니다.
-          </p>
-        </article>
+          <article className="rounded-[28px] border border-[#0b4f95]/20 bg-[#0f4f91] p-5 text-white shadow-soft transition hover:-translate-y-1">
+            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-white/60">Stats View</p>
+            <h2 className="mt-2 font-serif text-2xl sm:text-[1.8rem]">통계 보기</h2>
+            <p className="mt-2 text-sm leading-6 text-white/72">
+              누적 정답률, 최근 오답, 기출 풀이율, 마지막 학습 모드를 한 번에 점검할 수 있습니다.
+            </p>
+          </article>
         </a>
+      </section>
+
+      <section className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <StatCard
+          label="진행률"
+          value={`${progress.totalSolved}/${progress.totalQuestions}`}
+          hint="한 번이라도 제출한 문항 수"
+          accent="pine"
+        />
+        <StatCard
+          label="정답률"
+          value={toPercent(progress.accuracy)}
+          hint={`${progress.correctCount}개 정답 / ${progress.wrongCount}개 오답`}
+        />
+        <StatCard
+          label="오답 복습"
+          value={`${progress.activeReviewCount}문항`}
+          hint="현재 active 상태의 복습 카드"
+          accent="rose"
+        />
+        <StatCard
+          label="기출 풀이"
+          value={`${progress.pastExamSolved}/${progress.pastExamCount}`}
+          hint="기출 문제만 따로 집계"
+        />
       </section>
     </Shell>
   );
