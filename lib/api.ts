@@ -12,9 +12,11 @@ import {
 } from "@/lib/storage";
 import {
   AttemptPayload,
+  AttemptResult,
   PreferencePayload,
   QuestionApiResponse,
   ReviewFilter,
+  StudyPayload,
   StudyMode,
   WrongQuestionSummary
 } from "@/lib/types";
@@ -38,6 +40,30 @@ export async function fetchQuestionPayload(
   };
 }
 
+export async function fetchStudyPayload(
+  mode: StudyMode,
+  cursor = 0,
+  reviewFilter: ReviewFilter = "active"
+): Promise<StudyPayload> {
+  const sessionId = await getSessionId();
+  await ensureSessionRecord(sessionId);
+  const allQuestions = await getQuestionBank();
+  const reviewIds =
+    mode === "review" ? await getReviewQuestionIds({ sessionId, filter: reviewFilter }) : [];
+  const questions = await getQuestionsByMode(mode, reviewIds);
+  const progress = await getProgress({ sessionId, questions: allQuestions });
+
+  return {
+    questionPayload: {
+      mode,
+      total: questions.length,
+      cursor,
+      questions
+    },
+    progress
+  };
+}
+
 export async function fetchProgress() {
   const sessionId = await getSessionId();
   await ensureSessionRecord(sessionId);
@@ -56,7 +82,16 @@ export async function createAttempt(payload: AttemptPayload) {
   const sessionId = await getSessionId();
   await ensureSessionRecord(sessionId);
   const questions = await getQuestionBank();
-  return submitAttempt({ sessionId, questions, payload });
+  await submitAttempt({ sessionId, questions, payload });
+  const progress = await getProgress({ sessionId, questions });
+  const question = questions.find((item) => item.id === payload.questionId);
+
+  return {
+    isCorrect: question?.answer.label === payload.selectedLabel,
+    correctLabel: question?.answer.label ?? null,
+    correctText: question?.answer.text ?? "",
+    progress
+  } satisfies AttemptResult;
 }
 
 export async function savePreferences(payload: PreferencePayload) {

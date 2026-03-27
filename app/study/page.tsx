@@ -1,6 +1,6 @@
 import { Shell } from "@/components/shell";
 import { StudyClient } from "@/components/study-client";
-import { fetchProgress, fetchQuestionPayload } from "@/lib/api";
+import { fetchStudyPayload } from "@/lib/api";
 import { OrderMode, ReviewFilter, StudyMode } from "@/lib/types";
 
 export default async function StudyPage({
@@ -22,8 +22,7 @@ export default async function StudyPage({
     params.orderSeed && params.orderSeed.trim()
       ? params.orderSeed
       : `${mode}:${reviewFilter}:default-random-order`;
-  const progress = await fetchProgress();
-  const questionPayload = await fetchQuestionPayload(mode, 0, reviewFilter);
+  const studyPayload = await fetchStudyPayload(mode, 0, reviewFilter);
 
   return (
     <Shell
@@ -36,8 +35,8 @@ export default async function StudyPage({
         initialReviewFilter={reviewFilter}
         initialOrder={order}
         initialOrderSeed={orderSeed}
-        initialData={questionPayload}
-        initialProgress={progress}
+        initialData={studyPayload.questionPayload}
+        initialProgress={studyPayload.progress}
         resume={params.resume === "1"}
       />
     </Shell>

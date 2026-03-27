@@ -4,11 +4,13 @@ import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { ResetButton } from "@/components/stats-reset-button";
 import {
+  AttemptResult,
   OrderMode,
   ProgressSummary,
   QuestionApiResponse,
   Question,
   ReviewFilter,
+  StudyPayload,
   StudyMode
 } from "@/lib/types";
 import { cn, formatKoreanDate, toPercent } from "@/lib/utils";
@@ -148,9 +150,9 @@ export function StudyClient({
       const query = buildStudyQuery(nextMode, nextFilter, nextOrder, nextOrderSeed);
 
       const response = await fetch(`/api/questions?${query.toString()}`, { cache: "no-store" });
-      const nextData = (await response.json()) as QuestionApiResponse;
-      const progressResponse = await fetch("/api/progress", { cache: "no-store" });
-      const nextProgress = (await progressResponse.json()) as ProgressSummary;
+      const payload = (await response.json()) as StudyPayload;
+      const nextData = payload.questionPayload;
+      const nextProgress = payload.progress;
 
       setMode(nextMode);
       setReviewFilter(nextFilter);
@@ -203,11 +205,7 @@ export function StudyClient({
         throw new Error("submit_failed");
       }
 
-      const result = (await response.json()) as {
-        isCorrect: boolean;
-        correctLabel: string | null;
-        correctText: string;
-      };
+      const result = (await response.json()) as AttemptResult;
 
       setSubmission({
         submitted: true,
@@ -220,9 +218,7 @@ export function StudyClient({
       setFeedbackState(result.isCorrect ? "correct" : "wrong");
       playFeedbackSound(result.isCorrect ? "correct" : "wrong");
 
-      const progressResponse = await fetch("/api/progress", { cache: "no-store" });
-      const nextProgress = (await progressResponse.json()) as ProgressSummary;
-      setProgress(nextProgress);
+      setProgress(result.progress);
     } catch {
       setError("저장 중 문제가 생겼습니다. 다시 제출해 주세요.");
     }

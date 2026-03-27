@@ -101,6 +101,18 @@ export type QuestionApiResponse = {
   questions: Question[];
 };
 
+export type StudyPayload = {
+  questionPayload: QuestionApiResponse;
+  progress: ProgressSummary;
+};
+
+export type AttemptResult = {
+  isCorrect: boolean;
+  correctLabel: string | null;
+  correctText: string;
+  progress: ProgressSummary;
+};
+
 export type WrongQuestionSummary = {
   questionId: string;
   prompt: string;

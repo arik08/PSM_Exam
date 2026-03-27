@@ -40,6 +40,8 @@ const DEFAULT_PREFERENCES = {
 const DATA_DIR = path.join(process.cwd(), ".app-data");
 const DB_FILE = path.join(DATA_DIR, "study-db.json");
 const isVercelRuntime = process.env.VERCEL === "1";
+const shouldUseSupabase =
+  isVercelRuntime || process.env.USE_SUPABASE_LOCAL === "1";
 
 declare global {
   var __psmMemoryDb: FileDb | undefined;
@@ -195,6 +197,10 @@ function computeProgress(
 }
 
 function getSupabaseClient() {
+  if (!shouldUseSupabase) {
+    return null;
+  }
+
   const url = process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
