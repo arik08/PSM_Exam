@@ -39,6 +39,11 @@ const DEFAULT_PREFERENCES = {
 
 const DATA_DIR = path.join(process.cwd(), ".app-data");
 const DB_FILE = path.join(DATA_DIR, "study-db.json");
+const isVercelRuntime = process.env.VERCEL === "1";
+
+declare global {
+  var __psmMemoryDb: FileDb | undefined;
+}
 
 function createEmptyDb(): FileDb {
   return {
@@ -54,6 +59,14 @@ async function ensureDataDir() {
 }
 
 async function readDb(): Promise<FileDb> {
+  if (isVercelRuntime) {
+    if (!globalThis.__psmMemoryDb) {
+      globalThis.__psmMemoryDb = createEmptyDb();
+    }
+
+    return globalThis.__psmMemoryDb;
+  }
+
   await ensureDataDir();
 
   try {
@@ -104,6 +117,11 @@ async function readDb(): Promise<FileDb> {
 }
 
 async function writeDb(db: FileDb) {
+  if (isVercelRuntime) {
+    globalThis.__psmMemoryDb = db;
+    return;
+  }
+
   await ensureDataDir();
   const tempFile = `${DB_FILE}.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}.tmp`;
   await fs.writeFile(tempFile, JSON.stringify(db, null, 2), "utf8");
