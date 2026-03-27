@@ -6,3 +6,5 @@ node_modules
 .app-data
 npm-debug.log*
 .next-dev.log
+
+.vercel
