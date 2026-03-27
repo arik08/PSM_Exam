@@ -9,11 +9,12 @@ export default async function HomePage() {
 
   return (
     <Shell
-      eyebrow="Focused Learning Workspace"
-      title="PSM 문제 풀이와 복습을 한 곳에서"
-      description="기출 학습부터 오답 복습까지, 반복 학습에 맞춘 PSM 문제 풀이 서비스를 경험해 보세요."
+      eyebrow="학습 홈"
+      title="문제 풀이와 복습"
+      description="이어풀기, 기출 학습, 오답 복습을 한 화면 흐름으로 정리했습니다."
+      compact
     >
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <StatCard
           label="진행률"
           value={`${progress.totalSolved}/${progress.totalQuestions}`}
@@ -38,7 +39,7 @@ export default async function HomePage() {
         />
       </section>
 
-      <section className="mt-8 grid gap-4 lg:grid-cols-2">
+      <section className="mt-4 grid gap-3 lg:grid-cols-2">
         <ModeLink
           href={
             progress.resumeQuestionId
@@ -69,20 +70,16 @@ export default async function HomePage() {
         />
       </section>
 
-      <section className="mt-8">
-        <article className="rounded-[32px] border border-[#0b4f95]/20 bg-[#0f4f91] p-6 text-white shadow-soft">
+      <section className="mt-4">
+        <a href="/stats" className="block">
+        <article className="rounded-[28px] border border-[#0b4f95]/20 bg-[#0f4f91] p-5 text-white shadow-soft transition hover:-translate-y-1">
           <p className="text-xs font-semibold uppercase tracking-[0.24em] text-white/60">Stats View</p>
-          <h2 className="mt-3 font-serif text-3xl">통계 보기</h2>
-          <p className="mt-3 text-sm leading-7 text-white/72">
+          <h2 className="mt-2 font-serif text-2xl sm:text-[1.8rem]">통계 보기</h2>
+          <p className="mt-2 text-sm leading-6 text-white/72">
             누적 정답률, 최근 오답, 기출 풀이율, 마지막 학습 모드를 한 번에 점검할 수 있습니다.
           </p>
-          <a
-            href="/stats"
-            className="mt-6 inline-flex rounded-full bg-white px-4 py-2 text-sm font-medium text-ink"
-          >
-            통계 열기
-          </a>
         </article>
+        </a>
       </section>
     </Shell>
   );

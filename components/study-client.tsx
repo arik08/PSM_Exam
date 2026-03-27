@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { ResetButton } from "@/components/stats-reset-button";
 import {
@@ -51,6 +51,16 @@ function createEmptySubmission(): SubmissionState {
   };
 }
 
+function isSameSubmission(left: SubmissionState, right: SubmissionState) {
+  return (
+    left.submitted === right.submitted &&
+    left.isCorrect === right.isCorrect &&
+    left.correctLabel === right.correctLabel &&
+    left.correctText === right.correctText &&
+    left.submittedAt === right.submittedAt
+  );
+}
+
 export function StudyClient({
   initialData,
   initialProgress,
@@ -77,8 +87,14 @@ export function StudyClient({
   const [feedbackState, setFeedbackState] = useState<FeedbackState>(null);
   const [error, setError] = useState<string | null>(null);
   const [questionStateMap, setQuestionStateMap] = useState<Record<string, QuestionViewState>>({});
+  const questionStateMapRef = useRef(questionStateMap);
 
   const currentQuestion = data.questions[index] ?? null;
+  const currentQuestionId = currentQuestion?.id ?? null;
+
+  useEffect(() => {
+    questionStateMapRef.current = questionStateMap;
+  }, [questionStateMap]);
 
   useEffect(() => {
     if (!resume || !progress.resumeQuestionId) {
@@ -92,31 +108,44 @@ export function StudyClient({
   }, [data.questions, progress.resumeQuestionId, resume]);
 
   useEffect(() => {
-    if (!currentQuestion) {
+    if (!currentQuestionId) {
       return;
     }
 
-    const savedState = questionStateMap[currentQuestion.id];
-    setSelectedLabel(savedState?.selectedLabel ?? null);
-    setSubmission(savedState?.submission ?? createEmptySubmission());
-    setShowSolution(savedState?.showSolution ?? false);
+    const savedQuestionState = questionStateMapRef.current[currentQuestionId];
+    setSelectedLabel(savedQuestionState?.selectedLabel ?? null);
+    setSubmission(savedQuestionState?.submission ?? createEmptySubmission());
+    setShowSolution(savedQuestionState?.showSolution ?? false);
     setFeedbackState(null);
     setError(null);
-  }, [currentQuestion, questionStateMap]);
+  }, [currentQuestionId]);
 
   useEffect(() => {
     if (!currentQuestion) {
       return;
     }
 
-    setQuestionStateMap((current) => ({
-      ...current,
-      [currentQuestion.id]: {
-        selectedLabel,
-        submission,
-        showSolution
+    setQuestionStateMap((current) => {
+      const previousState = current[currentQuestion.id];
+
+      if (
+        previousState &&
+        previousState.selectedLabel === selectedLabel &&
+        previousState.showSolution === showSolution &&
+        isSameSubmission(previousState.submission, submission)
+      ) {
+        return current;
       }
-    }));
+
+      return {
+        ...current,
+        [currentQuestion.id]: {
+          selectedLabel,
+          submission,
+          showSolution
+        }
+      };
+    });
   }, [currentQuestion, selectedLabel, submission, showSolution]);
 
   useEffect(() => {
@@ -140,6 +169,10 @@ export function StudyClient({
     if (!data.total) return 0;
     return (solvedCountInCurrentMode / data.total) * 100;
   }, [data.total, solvedCountInCurrentMode]);
+
+  const canGoNext =
+    submission.submitted &&
+    (index < data.questions.length - 1 || (mode === "review" && reviewFilter !== "recent"));
 
   const actionHint = !selectedLabel
     ? "보기를 하나 선택한 뒤 정답 및 해설 카드를 누르세요."
@@ -447,9 +480,15 @@ export function StudyClient({
           />
         </div>
 
-        <div className="mt-3 flex items-center gap-2">
+        <div className="mt-3 grid grid-cols-2 gap-2">
           <SecondaryAction onClick={handlePrevious} disabled={index === 0}>
             이전 문제
+          </SecondaryAction>
+          <SecondaryAction
+            onClick={() => void handleNext()}
+            disabled={!canGoNext}
+          >
+            다음 문제
           </SecondaryAction>
         </div>
 
@@ -457,7 +496,7 @@ export function StudyClient({
           {actionHint}
         </div>
 
-        <div className="mt-4 hidden items-center justify-between gap-3 sm:flex">
+        <div className="hidden">
           <p className="text-xs text-ink/55">
             마지막 학습 모드: {progress.preferences.lastMode}
             {progress.resumeQuestionId ? ` / 이어풀기 ID: ${progress.resumeQuestionId}` : ""}
@@ -465,17 +504,25 @@ export function StudyClient({
         </div>
 
         <div className="fixed inset-x-0 bottom-0 z-30 border-t border-black/8 bg-[#f8fbff]/96 px-4 py-3 shadow-[0_-12px_30px_rgba(16,35,63,.08)] backdrop-blur sm:hidden">
-          <div className="mx-auto grid max-w-2xl grid-cols-2 gap-2">
-            <SecondaryAction onClick={handlePrevious} disabled={index === 0}>
-              이전 문제
-            </SecondaryAction>
+          <div className="mx-auto grid max-w-2xl gap-2">
+            <div className="grid grid-cols-2 gap-2">
+              <SecondaryAction onClick={handlePrevious} disabled={index === 0}>
+                이전 문제
+              </SecondaryAction>
+              <SecondaryAction
+                onClick={() => void handleNext()}
+                disabled={!canGoNext}
+              >
+                다음 문제
+              </SecondaryAction>
+            </div>
             <MobileAction onClick={() => void handleSolutionAction()} disabled={!selectedLabel && !submission.submitted}>
               {submission.submitted ? "정답 및 해설 / 다음" : "정답 및 해설"}
             </MobileAction>
           </div>
         </div>
 
-        <div className="mt-4 text-xs text-ink/45">
+        <div className="hidden">
           {isPending ? "목록을 불러오는 중..." : "최근 저장은 서버 응답 기준으로 즉시 반영됩니다."}
           {submission.submittedAt ? (
             <span className="ml-2">제출 시간: {formatKoreanDate(submission.submittedAt)}</span>
@@ -879,7 +926,7 @@ function SecondaryAction({
       onClick={onClick}
       disabled={disabled}
       className={cn(
-        "rounded-2xl border px-3 py-2.5 text-sm font-medium transition",
+        "w-full rounded-2xl border px-3 py-2.5 text-sm font-medium transition",
         disabled
           ? "border-dashed border-black/10 bg-black/5 text-ink/35"
           : "border-black/10 bg-white text-ink/75 hover:border-pine/30 hover:text-pine"

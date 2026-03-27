@@ -566,6 +566,8 @@ export async function getWrongQuestionSummaries({
           wrongCount: item.wrongCount,
           lastWrongAt: item.lastWrongAt,
           status: item.status,
+          choices: question?.choices ?? [],
+          answerLabel: question?.answer.label ?? null,
           answerText: question?.answer.text ?? ""
         };
       });
@@ -591,6 +593,8 @@ export async function getWrongQuestionSummaries({
       wrongCount: item.wrong_count,
       lastWrongAt: item.last_wrong_at,
       status: item.status,
+      choices: question?.choices ?? [],
+      answerLabel: question?.answer.label ?? null,
       answerText: question?.answer.text ?? ""
     };
   });

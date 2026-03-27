@@ -26,7 +26,7 @@ export default async function StudyPage({
 
   return (
     <Shell
-      eyebrow="Study"
+      eyebrow="학습 모드"
       title="문제 풀이"
       compact
     >

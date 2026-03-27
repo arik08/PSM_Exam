@@ -16,9 +16,6 @@ export function Shell({ title, eyebrow, description, children, actions, compact 
       <header className="sticky top-0 z-40 border-b border-black/5 bg-[#f8fbff]/92 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-2 px-4 py-2 sm:gap-4 sm:px-6 sm:py-3">
           <div className="min-w-0">
-            <p className="hidden text-xs font-semibold uppercase tracking-[0.24em] text-pine/70 sm:block">
-              {eyebrow}
-            </p>
             <Link href="/" className="block whitespace-nowrap font-serif text-base text-ink sm:text-2xl">
               PSM Study
             </Link>

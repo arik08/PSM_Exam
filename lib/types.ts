@@ -121,5 +121,7 @@ export type WrongQuestionSummary = {
   wrongCount: number;
   lastWrongAt: string;
   status: "active" | "resolved";
+  choices: QuestionChoice[];
+  answerLabel: string | null;
   answerText: string;
 };

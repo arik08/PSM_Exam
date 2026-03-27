@@ -10,10 +10,11 @@ export default async function StatsPage() {
 
   return (
     <Shell
-      eyebrow="Study Statistics"
-      title="학습 흐름을 점검하는 통계"
+      eyebrow="기록 보기"
+      title="학습 통계"
       description="누적 정확도와 기출 진도, 이어풀기 위치, 자주 틀리는 문제를 한 화면에서 확인할 수 있습니다."
       actions={<StatsResetButton />}
+      compact
     >
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <StatCard
@@ -92,8 +93,26 @@ export default async function StatsPage() {
                     </span>
                   </div>
                   <p className="mt-3 text-base font-medium leading-7 text-ink">{question.prompt}</p>
+                  <div className="mt-3 grid gap-2">
+                    {question.choices.map((choice) => {
+                      const isAnswer = choice.label === question.answerLabel;
+
+                      return (
+                        <div
+                          key={`${question.questionId}-${choice.label}`}
+                          className={`rounded-2xl border px-3 py-2 text-sm leading-6 ${
+                            isAnswer
+                              ? "border-black/8 bg-white/70 text-[#0000FF]"
+                              : "border-black/8 bg-white/70 text-ink/72"
+                          }`}
+                        >
+                          <span className="font-semibold">{choice.label}</span> {choice.text}
+                        </div>
+                      );
+                    })}
+                  </div>
                   <p className="mt-2 text-sm text-ink/65">
-                    정답: <strong>{question.answerText}</strong>
+                    정답: <strong>{question.answerLabel ? `${question.answerLabel} ` : ""}{question.answerText}</strong>
                   </p>
                   <p className="mt-1 text-xs text-ink/48">
                     최근 오답: {formatKoreanDate(question.lastWrongAt)}
