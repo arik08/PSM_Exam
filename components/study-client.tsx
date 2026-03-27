@@ -503,25 +503,6 @@ export function StudyClient({
           </p>
         </div>
 
-        <div className="fixed inset-x-0 bottom-0 z-30 border-t border-black/8 bg-[#f8fbff]/96 px-4 py-3 shadow-[0_-12px_30px_rgba(16,35,63,.08)] backdrop-blur sm:hidden">
-          <div className="mx-auto grid max-w-2xl gap-2">
-            <div className="grid grid-cols-2 gap-2">
-              <SecondaryAction onClick={handlePrevious} disabled={index === 0}>
-                이전 문제
-              </SecondaryAction>
-              <SecondaryAction
-                onClick={() => void handleNext()}
-                disabled={!canGoNext}
-              >
-                다음 문제
-              </SecondaryAction>
-            </div>
-            <MobileAction onClick={() => void handleSolutionAction()} disabled={!selectedLabel && !submission.submitted}>
-              {submission.submitted ? "정답 및 해설 / 다음" : "정답 및 해설"}
-            </MobileAction>
-          </div>
-        </div>
-
         <div className="hidden">
           {isPending ? "목록을 불러오는 중..." : "최근 저장은 서버 응답 기준으로 즉시 반영됩니다."}
           {submission.submittedAt ? (
@@ -883,30 +864,6 @@ function RevealCard({
       <div className={cn("mt-2 text-sm leading-6 text-ink/72", !enabled && "line-clamp-1")}>
         {enabled ? value : idleText}
       </div>
-    </button>
-  );
-}
-
-function MobileAction({
-  onClick,
-  disabled,
-  children
-}: {
-  onClick: () => void;
-  disabled?: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      className={cn(
-        "rounded-2xl border px-3 py-2.5 text-sm font-medium transition",
-        disabled ? "border-dashed border-black/10 bg-black/5 text-ink/35" : "border-pine bg-pine text-white"
-      )}
-    >
-      {children}
     </button>
   );
 }
