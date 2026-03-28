@@ -622,7 +622,7 @@ export function StudyClient({
                   <div>
                     정답: <strong>{currentQuestion.answer.label}</strong> {currentQuestion.answer.text}
                   </div>
-                  <div>{currentQuestion.explanation}</div>
+                  <div className="whitespace-pre-line">{currentQuestion.explanation}</div>
                 </div>
               ) : (
                 "제출 후 확인"
