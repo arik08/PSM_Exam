@@ -44,7 +44,7 @@ const shouldUseSupabase =
   isVercelRuntime || process.env.USE_SUPABASE_LOCAL === "1";
 
 declare global {
-  var __psmMemoryDb: FileDb | undefined;
+  var __opicMemoryDb: FileDb | undefined;
 }
 
 function createEmptyDb(): FileDb {
@@ -62,11 +62,11 @@ async function ensureDataDir() {
 
 async function readDb(): Promise<FileDb> {
   if (isVercelRuntime) {
-    if (!globalThis.__psmMemoryDb) {
-      globalThis.__psmMemoryDb = createEmptyDb();
+    if (!globalThis.__opicMemoryDb) {
+      globalThis.__opicMemoryDb = createEmptyDb();
     }
 
-    return globalThis.__psmMemoryDb;
+    return globalThis.__opicMemoryDb;
   }
 
   await ensureDataDir();
@@ -120,7 +120,7 @@ async function readDb(): Promise<FileDb> {
 
 async function writeDb(db: FileDb) {
   if (isVercelRuntime) {
-    globalThis.__psmMemoryDb = db;
+    globalThis.__opicMemoryDb = db;
     return;
   }
 
@@ -169,9 +169,15 @@ function computeProgress(
   reviewItems: ReviewItem[],
   preferences: UserPreferences
 ): ProgressSummary {
-  const sessionAttempts = attempts.filter((attempt) => attempt.sessionId === sessionId);
+  const currentQuestionIds = new Set(questions.map((question) => question.id));
+  const sessionAttempts = attempts.filter(
+    (attempt) => attempt.sessionId === sessionId && currentQuestionIds.has(attempt.questionId)
+  );
   const activeReview = reviewItems.filter(
-    (item) => item.sessionId === sessionId && item.status === "active"
+    (item) =>
+      item.sessionId === sessionId &&
+      item.status === "active" &&
+      currentQuestionIds.has(item.questionId)
   );
   const solved = new Set(sessionAttempts.map((attempt) => attempt.questionId));
   const correctCount = sessionAttempts.filter((attempt) => attempt.isCorrect).length;
@@ -337,7 +343,10 @@ export async function submitAttempt({
     throw new Error("Question not found.");
   }
 
-  const isCorrect = question.answer.label === payload.selectedLabel;
+  const isSelfCheckedActivity = question.activityType !== "speaking" || question.choices.length === 0;
+  const isCorrect = isSelfCheckedActivity
+    ? payload.selectedLabel !== "UNKNOWN"
+    : question.answer.label === payload.selectedLabel;
   const attemptedAt = new Date().toISOString();
   const supabase = getSupabaseClient();
   let activeReviewDelta: -1 | 0 | 1 = 0;
@@ -555,6 +564,29 @@ export async function getReviewQuestionIds({
   return (data ?? []).map((item) => item.question_id as string);
 }
 
+export async function getHiddenQuestionIds(sessionId: string) {
+  const supabase = getSupabaseClient();
+
+  if (!supabase) {
+    const db = await readDb();
+    return [
+      ...new Set(
+        db.questionAttempts
+          .filter((item) => item.sessionId === sessionId && item.selectedChoice === "HIDDEN")
+          .map((item) => item.questionId)
+      )
+    ];
+  }
+
+  const { data } = await supabase
+    .from("question_attempts")
+    .select("question_id")
+    .eq("session_id", sessionId)
+    .eq("selected_choice", "HIDDEN");
+
+  return [...new Set((data ?? []).map((item) => item.question_id as string))];
+}
+
 export async function getWrongQuestionSummaries({
   sessionId,
   questions
@@ -566,7 +598,7 @@ export async function getWrongQuestionSummaries({
     const questionMap = new Map(questions.map((question) => [question.id, question]));
 
     return db.reviewItems
-      .filter((item) => item.sessionId === sessionId)
+      .filter((item) => item.sessionId === sessionId && questionMap.has(item.questionId))
       .sort((a, b) => {
         if (b.wrongCount !== a.wrongCount) {
           return b.wrongCount - a.wrongCount;
@@ -578,7 +610,7 @@ export async function getWrongQuestionSummaries({
 
         return {
           questionId: item.questionId,
-          prompt: question?.prompt || `문제 ${question?.number ?? ""}`.trim(),
+          prompt: question?.prompt || `질문 ${question?.number ?? ""}`.trim(),
           sourceSection: question?.sourceSection ?? "",
           isPastExam: question?.isPastExam ?? item.isPastExam,
           wrongCount: item.wrongCount,
@@ -600,12 +632,12 @@ export async function getWrongQuestionSummaries({
 
   const questionMap = new Map(questions.map((question) => [question.id, question]));
 
-  return (data ?? []).map((item) => {
+  return (data ?? []).filter((item) => questionMap.has(item.question_id)).map((item) => {
     const question = questionMap.get(item.question_id);
 
     return {
       questionId: item.question_id,
-      prompt: question?.prompt || `문제 ${question?.number ?? ""}`.trim(),
+      prompt: question?.prompt || `질문 ${question?.number ?? ""}`.trim(),
       sourceSection: question?.sourceSection ?? "",
       isPastExam: question?.isPastExam ?? item.is_past_exam,
       wrongCount: item.wrong_count,
@@ -667,5 +699,75 @@ export async function resetSessionWrongQuestions(sessionId: string) {
   }
 
   await supabase.from("review_items").delete().eq("session_id", sessionId);
+  return { ok: true };
+}
+
+export async function resetSessionHiddenQuestions(sessionId: string) {
+  const supabase = getSupabaseClient();
+
+  if (!supabase) {
+    const db = await readDb();
+    db.questionAttempts = db.questionAttempts.filter(
+      (item) => item.sessionId !== sessionId || item.selectedChoice !== "HIDDEN"
+    );
+    await writeDb(db);
+    return { ok: true };
+  }
+
+  await supabase
+    .from("question_attempts")
+    .delete()
+    .eq("session_id", sessionId)
+    .eq("selected_choice", "HIDDEN");
+
+  return { ok: true };
+}
+
+export async function resetSessionQuestionsProgress(sessionId: string, questionIds: string[]) {
+  const uniqueQuestionIds = [...new Set(questionIds)];
+
+  if (!uniqueQuestionIds.length) {
+    return { ok: true };
+  }
+
+  const supabase = getSupabaseClient();
+
+  if (!supabase) {
+    const db = await readDb();
+    const resetSet = new Set(uniqueQuestionIds);
+
+    db.questionAttempts = db.questionAttempts.filter(
+      (item) => item.sessionId !== sessionId || !resetSet.has(item.questionId)
+    );
+    db.reviewItems = db.reviewItems.filter(
+      (item) => item.sessionId !== sessionId || !resetSet.has(item.questionId)
+    );
+
+    const preferencesIndex = db.userPreferences.findIndex((item) => item.sessionId === sessionId);
+
+    if (preferencesIndex >= 0 && db.userPreferences[preferencesIndex].lastQuestionId) {
+      const lastQuestionId = db.userPreferences[preferencesIndex].lastQuestionId;
+      if (lastQuestionId && resetSet.has(lastQuestionId)) {
+        db.userPreferences[preferencesIndex].lastQuestionId = null;
+      }
+    }
+
+    await writeDb(db);
+    return { ok: true };
+  }
+
+  await Promise.all([
+    supabase
+      .from("question_attempts")
+      .delete()
+      .eq("session_id", sessionId)
+      .in("question_id", uniqueQuestionIds),
+    supabase
+      .from("review_items")
+      .delete()
+      .eq("session_id", sessionId)
+      .in("question_id", uniqueQuestionIds)
+  ]);
+
   return { ok: true };
 }

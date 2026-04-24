@@ -15,7 +15,7 @@ export default async function StudyPage({
   }>;
 }) {
   const params = await searchParams;
-  const mode = (params.mode as StudyMode) || "all";
+  const mode = ((params.mode === "past" ? "speaking" : params.mode) as StudyMode) || "speaking";
   const reviewFilter = (params.review as ReviewFilter) || "active";
   const order = (params.order as OrderMode) || "sequential";
   const orderSeed =
@@ -26,8 +26,8 @@ export default async function StudyPage({
 
   return (
     <Shell
-      eyebrow="학습 모드"
-      title="문제 풀이"
+      eyebrow="Speaking Practice"
+      title="OPIc 답변 연습"
       compact
     >
       <StudyClient

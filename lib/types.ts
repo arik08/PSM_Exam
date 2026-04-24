@@ -1,7 +1,25 @@
-export type StudyMode = "all" | "past" | "review";
+export type StudyMode =
+  | "all"
+  | "speaking"
+  | "sentence"
+  | "sentence-en-ko"
+  | "sentence-ko-en"
+  | "vocab"
+  | "vocab-en-ko"
+  | "vocab-ko-en"
+  | "past"
+  | "review";
 export type ReviewFilter = "active" | "recent" | "past-only";
 export type OrderMode = "sequential" | "random";
 export type RevealMode = "manual" | "auto-after-submit";
+export type ActivityType =
+  | "speaking"
+  | "translation-pair"
+  | "translation-en-ko"
+  | "translation-ko-en"
+  | "vocab-pair"
+  | "vocab-en-ko"
+  | "vocab-ko-en";
 
 export type QuestionChoice = {
   label: string;
@@ -18,18 +36,22 @@ export type QuestionAnswer = {
 export type QuestionRecord = {
   id: string;
   number: number;
+  activity_type?: ActivityType;
   source_section: string;
   is_past_exam: boolean;
-  question: string;
-  question_context: string;
-  choices: QuestionChoice[];
-  answer: QuestionAnswer;
+  question?: string;
+  question_context?: string;
+  english?: string;
+  korean?: string;
+  choices?: QuestionChoice[];
+  answer?: QuestionAnswer;
   explanation: string;
 };
 
 export type Question = {
   id: string;
   number: number;
+  activityType: ActivityType;
   sourceSection: string;
   isPastExam: boolean;
   prompt: string;

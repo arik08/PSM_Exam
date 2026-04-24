@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { ResetButton } from "@/components/stats-reset-button";
+import { StudyResetButtons } from "@/components/stats-reset-button";
 import {
   AttemptResult,
   OrderMode,
@@ -47,7 +47,7 @@ type QueuedAttempt = {
   mode: StudyMode;
 };
 
-const ATTEMPT_QUEUE_KEY = "psm-pending-attempts";
+const ATTEMPT_QUEUE_KEY = "opic-pending-attempts";
 
 function createEmptySubmission(): SubmissionState {
   return {
@@ -122,6 +122,8 @@ export function StudyClient({
   const [selectedLabel, setSelectedLabel] = useState<string | null>(null);
   const [submission, setSubmission] = useState<SubmissionState>(createEmptySubmission);
   const [showSolution, setShowSolution] = useState(false);
+  const [timerCentiseconds, setTimerCentiseconds] = useState(0);
+  const [timerRunning, setTimerRunning] = useState(false);
   const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
   const [feedbackState, setFeedbackState] = useState<FeedbackState>(null);
   const [error, setError] = useState<string | null>(null);
@@ -157,6 +159,8 @@ export function StudyClient({
     setSelectedLabel(savedQuestionState?.selectedLabel ?? null);
     setSubmission(savedQuestionState?.submission ?? createEmptySubmission());
     setShowSolution(savedQuestionState?.showSolution ?? false);
+    setTimerCentiseconds(0);
+    setTimerRunning(false);
     setFeedbackState(null);
     setError(null);
   }, [currentQuestionId]);
@@ -188,6 +192,18 @@ export function StudyClient({
       };
     });
   }, [currentQuestion, selectedLabel, submission, showSolution]);
+
+  useEffect(() => {
+    if (!timerRunning) {
+      return;
+    }
+
+    const interval = window.setInterval(() => {
+      setTimerCentiseconds((current) => current + 1);
+    }, 10);
+
+    return () => window.clearInterval(interval);
+  }, [timerRunning]);
 
   useEffect(() => {
     if (!feedbackState) {
@@ -247,7 +263,7 @@ export function StudyClient({
 
       if (!cancelled) {
         setSyncPending(remaining.length > 0);
-        setError(remaining.length > 0 ? "일부 학습 기록을 다시 저장 중입니다." : null);
+        setError(remaining.length > 0 ? "일부 연습 기록을 다시 저장 중입니다." : null);
       }
     }
 
@@ -278,8 +294,7 @@ export function StudyClient({
   }, [data.total, solvedCountInCurrentMode]);
 
   const canGoNext =
-    submission.submitted &&
-    (index < data.questions.length - 1 || (mode === "review" && reviewFilter !== "recent"));
+    index < data.questions.length - 1 || (mode === "review" && reviewFilter !== "recent");
 
   function buildStudyQuery(
     nextMode: StudyMode,
@@ -388,48 +403,62 @@ export function StudyClient({
         throw new Error("submit_failed");
       }
 
+      const savedResult = (await response.json()) as AttemptResult;
+      const optimisticReviewDelta = payload.selectedLabel === "UNKNOWN" ? 1 : 0;
+      const reviewDeltaCorrection = savedResult.activeReviewDelta - optimisticReviewDelta;
+
+      if (reviewDeltaCorrection !== 0) {
+        setProgress((current) => ({
+          ...current,
+          activeReviewCount: Math.max(0, current.activeReviewCount + reviewDeltaCorrection)
+        }));
+      }
+
       setError(null);
     } catch {
       const queue = [...readQueuedAttempts(), payload];
       writeQueuedAttempts(queue);
       setSyncPending(true);
-      setError("학습 기록을 임시 보관했습니다. 네트워크가 안정되면 자동 저장됩니다.");
+      setError("연습 기록을 임시 보관했습니다. 네트워크가 안정되면 자동 저장됩니다.");
     }
   }
 
-  function handleSubmit() {
-    if (!currentQuestion || !selectedLabel || submission.submitted) {
-      return;
+  function handleComplete(isKnown = true) {
+    if (!currentQuestion || submission.submitted) {
+      return false;
     }
 
+    const isSelfCheckedActivity = currentQuestion.activityType !== "speaking" || currentQuestion.choices.length === 0;
+    const completedLabel = isSelfCheckedActivity ? (isKnown ? "KNOWN" : "UNKNOWN") : currentQuestion.answer.label ?? "DONE";
     setError(null);
-    const isCorrect = currentQuestion.answer.label === selectedLabel;
     const result: AttemptResult = {
       questionId: currentQuestion.id,
-      isCorrect,
+      isCorrect: isKnown,
       isPastExam: currentQuestion.isPastExam,
-      activeReviewDelta: isCorrect ? -1 : 1,
+      activeReviewDelta: isKnown ? 0 : 1,
       correctLabel: currentQuestion.answer.label,
       correctText: currentQuestion.answer.text
     };
 
+    setSelectedLabel(completedLabel);
     setSubmission({
       submitted: true,
-      isCorrect: result.isCorrect,
+      isCorrect: isKnown,
       correctLabel: result.correctLabel,
       correctText: result.correctText,
       submittedAt: new Date().toISOString()
     });
     setShowSolution(true);
-    setFeedbackState(result.isCorrect ? "correct" : "wrong");
-    playFeedbackSound(result.isCorrect ? "correct" : "wrong");
+    setTimerRunning(false);
+    setFeedbackState(isKnown ? null : "wrong");
     updateProgressOptimistically(result);
 
     void persistAttemptInBackground({
       questionId: currentQuestion.id,
-      selectedLabel,
+      selectedLabel: completedLabel,
       mode
     });
+    return true;
   }
 
   async function handleNext() {
@@ -455,13 +484,92 @@ export function StudyClient({
   }
 
   async function handleSolutionAction() {
-    if (!selectedLabel && !submission.submitted) {
+    const isSelfCheckedActivity = currentQuestion?.activityType !== "speaking";
+
+    if (isSelfCheckedActivity) {
+      if (!showSolution) {
+        setShowSolution(true);
+        return;
+      }
+
+      if (mode === "review") {
+        await handleNext();
+        return;
+      }
+
+      if (!submission.submitted) {
+        handleComplete(true);
+      }
+
+      await handleNext();
       return;
     }
 
     if (!submission.submitted) {
-      handleSubmit();
+      handleComplete(true);
       return;
+    }
+
+    await handleNext();
+  }
+
+  async function handleKnowledgeCheck(isKnown: boolean) {
+    if (mode === "review") {
+      await handleNext();
+      return;
+    }
+
+    const recorded = handleComplete(isKnown);
+    if (recorded) await handleNext();
+  }
+
+  async function handleHideQuestion() {
+    if (!currentQuestion) {
+      return;
+    }
+
+    if (mode === "review") {
+      const recorded = handleComplete(true);
+      if (recorded) await handleNext();
+      return;
+    }
+
+    const result: AttemptResult = {
+      questionId: currentQuestion.id,
+      isCorrect: true,
+      isPastExam: currentQuestion.isPastExam,
+      activeReviewDelta: 0,
+      correctLabel: currentQuestion.answer.label,
+      correctText: currentQuestion.answer.text
+    };
+
+    setSelectedLabel("HIDDEN");
+    setSubmission({
+      submitted: true,
+      isCorrect: true,
+      correctLabel: result.correctLabel,
+      correctText: result.correctText,
+      submittedAt: new Date().toISOString()
+    });
+    updateProgressOptimistically(result);
+
+    void persistAttemptInBackground({
+      questionId: currentQuestion.id,
+      selectedLabel: "HIDDEN",
+      mode
+    });
+
+    await handleNext();
+  }
+
+  async function handleAdvance() {
+    if (
+      mode !== "review" &&
+      currentQuestion?.activityType !== "speaking" &&
+      showSolution &&
+      !submission.submitted
+    ) {
+      handleComplete(true);
     }
 
     await handleNext();
@@ -472,21 +580,36 @@ export function StudyClient({
     void loadMode(nextMode);
   }
 
-  function handleReviewFilterSelect(nextFilter: ReviewFilter) {
-    setMobilePanelOpen(false);
-    void loadMode("review", nextFilter);
-  }
-
   function handleOrderSelect(nextOrder: OrderMode) {
     setMobilePanelOpen(false);
     handleOrderChange(nextOrder);
   }
 
+  const sidebar = (
+    <SidebarContent
+      mode={mode}
+      reviewFilter={reviewFilter}
+      orderMode={orderMode}
+      progress={progress}
+      index={index}
+      total={data.total}
+      solvedCount={solvedCountInCurrentMode}
+      progressValue={progressValue}
+      onModeSelect={handleModeSelect}
+      onOrderSelect={handleOrderSelect}
+    />
+  );
+
   if (!currentQuestion) {
     return (
-      <div className="rounded-[28px] border border-black/8 bg-white/80 p-8 text-center shadow-soft">
-        <p className="font-serif text-3xl text-ink">표시할 문제가 없습니다.</p>
-        <p className="mt-3 text-sm text-ink/65">오답 복습 목록이 비어 있거나 조건에 맞는 문항이 없습니다.</p>
+      <div className="grid gap-4 lg:grid-cols-[0.82fr_1.48fr]">
+        <aside className="hidden space-y-3 lg:sticky lg:top-20 lg:block lg:self-start">
+          {sidebar}
+        </aside>
+        <section className="rounded-[14px] border border-black/8 bg-white/80 p-8 text-center shadow-soft">
+          <p className="font-serif text-3xl text-ink">표시할 질문이 없습니다.</p>
+          <p className="mt-3 text-sm text-ink/65">조건에 맞는 연습 항목이 없습니다.</p>
+        </section>
       </div>
     );
   }
@@ -494,24 +617,12 @@ export function StudyClient({
   return (
     <div className="grid gap-4 lg:grid-cols-[0.82fr_1.48fr]">
       <aside className="hidden space-y-3 lg:sticky lg:top-20 lg:block lg:self-start">
-        <SidebarContent
-          mode={mode}
-          reviewFilter={reviewFilter}
-          orderMode={orderMode}
-          progress={progress}
-          index={index}
-          total={data.total}
-          solvedCount={solvedCountInCurrentMode}
-          progressValue={progressValue}
-          onModeSelect={handleModeSelect}
-          onReviewFilterSelect={handleReviewFilterSelect}
-          onOrderSelect={handleOrderSelect}
-        />
+        {sidebar}
       </aside>
 
       <section
         className={cn(
-          "relative rounded-[28px] border border-black/8 bg-white/80 p-4 shadow-soft sm:p-5",
+          "relative rounded-[14px] border border-black/8 bg-white/80 p-4 shadow-soft sm:p-5",
           feedbackState === "correct" && "feedback-shell-correct",
           feedbackState === "wrong" && "feedback-shell-wrong"
         )}
@@ -519,42 +630,42 @@ export function StudyClient({
         {feedbackState ? (
           <div
             className={cn(
-              "pointer-events-none absolute inset-0 rounded-[28px]",
+              "pointer-events-none absolute inset-0 rounded-[14px]",
               feedbackState === "correct" ? "feedback-flash-correct" : "feedback-flash-wrong"
             )}
           />
         ) : null}
         <div className="mb-3 flex items-center justify-between gap-3 lg:hidden">
           <div className="flex items-center gap-2 text-xs text-ink/62">
-            <span className="rounded-full border border-black/10 px-2.5 py-1">{modeLabel(mode)}</span>
+            <span className="rounded-[10px] border border-black/10 px-2.5 py-1">{modeLabel(mode)}</span>
             <span>{index + 1} / {data.total}</span>
           </div>
           <button
             type="button"
             onClick={() => setMobilePanelOpen(true)}
-            className="rounded-full border border-black/10 bg-white px-3 py-1.5 text-xs font-medium text-ink/75"
+            className="rounded-[10px] border border-black/10 bg-white px-3 py-1.5 text-xs font-medium text-ink/75"
           >
             설정
           </button>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="rounded-full border border-black/10 px-3 py-1 text-xs font-medium text-ink/70">
+        <div className="hidden">
+          <span className="rounded-[10px] border border-black/10 px-3 py-1 text-xs font-medium text-ink/70">
             {currentQuestion.sourceSection}
           </span>
           {currentQuestion.isPastExam ? (
-            <span className="rounded-full border border-gold/25 bg-gold/10 px-3 py-1 text-xs font-medium text-gold">
-              기출
+            <span className="rounded-[10px] border border-gold/25 bg-gold/10 px-3 py-1 text-xs font-medium text-gold">
+              모의시험
             </span>
-          ) : (
-            <span className="rounded-full border border-black/10 px-3 py-1 text-xs font-medium text-ink/55">
-              일반
+          ) : shouldShowActivityBadge(currentQuestion) ? (
+            <span className="rounded-[10px] border border-black/10 px-3 py-1 text-xs font-medium text-ink/55">
+              {activityLabel(currentQuestion)}
             </span>
-          )}
+          ) : null}
         </div>
 
-        <h2 className="mt-3 font-serif text-2xl leading-snug text-ink sm:text-[2rem]">
-          {currentQuestion.prompt || `문제 ${currentQuestion.number}`}
+        <h2 className="font-serif text-2xl leading-snug text-ink sm:text-[2rem]">
+          {currentQuestion.prompt || `질문 ${currentQuestion.number}`}
         </h2>
 
         {currentQuestion.context ? (
@@ -563,95 +674,76 @@ export function StudyClient({
           </p>
         ) : null}
 
-        <div className="mt-4 grid gap-2">
-          {currentQuestion.choices.map((choice) => {
-            const isSelected = selectedLabel === choice.label;
-            const isCorrect = submission.correctLabel === choice.label;
-            const isWrongSelection =
-              submission.submitted && isSelected && !submission.isCorrect;
-
-            return (
-              <button
-                key={choice.label}
-                type="button"
-                disabled={submission.submitted}
-                onClick={() => setSelectedLabel(choice.label)}
-                className={cn(
-                  "flex min-h-14 w-full items-center gap-3 rounded-[20px] border px-3.5 py-3 text-left transition-all duration-150 sm:min-h-[3.75rem] sm:py-3.5",
-                  "border-black/10 bg-[#f8fbff] hover:border-pine/25 hover:bg-[#edf5fd] active:translate-y-px active:shadow-[inset_0_2px_8px_rgba(16,35,63,0.14)]",
-                  isSelected &&
-                    "border-pine bg-[#dcecff] shadow-[inset_0_2px_10px_rgba(0,91,170,0.18)] ring-1 ring-pine/12",
-                  submission.submitted && isCorrect &&
-                    "border-pine bg-[#d3e8ff] shadow-[inset_0_2px_10px_rgba(0,91,170,0.18)]",
-                  submission.submitted && isWrongSelection &&
-                    "border-rose bg-[#f7dbe2] shadow-[inset_0_2px_10px_rgba(181,80,102,0.14)]"
-                )}
-              >
-                <span
-                  className={cn(
-                    "font-semibold text-pine",
-                    submission.submitted && isWrongSelection && "text-rose"
-                  )}
-                >
-                  {choice.label}
-                </span>
-                <span className="text-sm leading-5 text-ink">{choice.text}</span>
-              </button>
-            );
-          })}
-        </div>
+        <ActivityWorkspace
+          question={currentQuestion}
+          timerRunning={timerRunning}
+          timerCentiseconds={timerCentiseconds}
+          submitted={submission.submitted}
+          onComplete={() => void handleComplete(true)}
+          onStartTimer={() => setTimerRunning(true)}
+          onPauseTimer={() => setTimerRunning(false)}
+          onResetTimer={() => {
+            setTimerRunning(false);
+            setTimerCentiseconds(0);
+          }}
+        />
 
         {error ? (
-          <p className="mt-3 rounded-2xl border border-rose/20 bg-rose/10 px-4 py-3 text-sm text-rose">
+          <p className="mt-3 rounded-[10px] border border-rose/20 bg-rose/10 px-4 py-3 text-sm text-rose">
             {error}
           </p>
         ) : null}
 
         {syncPending && !error ? (
-          <p className="mt-3 rounded-2xl border border-posco/15 bg-posco/8 px-4 py-3 text-sm text-posco">
-            학습 기록을 백그라운드에서 저장 중입니다.
+          <p className="mt-3 rounded-[10px] border border-posco/15 bg-posco/8 px-4 py-3 text-sm text-posco">
+            연습 기록을 백그라운드에서 저장 중입니다.
           </p>
         ) : null}
 
         <div className="mt-4">
           <RevealCard
-            label="정답 및 해설"
+            label={solutionLabel(currentQuestion)}
             value={
-              submission.submitted ? (
+              showSolution ? (
                 <div className="space-y-2">
                   <div>
-                    정답: <strong>{currentQuestion.answer.label}</strong> {currentQuestion.answer.text}
+                    답: <strong>{currentQuestion.answer.text}</strong>
                   </div>
                   <div className="whitespace-pre-line">{currentQuestion.explanation}</div>
                 </div>
-              ) : (
-                "제출 후 확인"
-              )
+              ) : null
             }
             enabled={showSolution}
-            disabled={!selectedLabel && !submission.submitted}
-            readyText="눌러서 다음 문제"
-            idleText={selectedLabel ? "눌러서 제출" : "선택 후 확인"}
+            disabled={false}
+            readyText="눌러서 다음 질문"
             onToggle={() => void handleSolutionAction()}
           />
+          {currentQuestion.activityType !== "speaking" && showSolution && !submission.submitted ? (
+            <div className="mt-3">
+              <PostAnswerActions
+                onHide={() => void handleHideQuestion()}
+                onCheckAgain={() => void handleKnowledgeCheck(false)}
+              />
+            </div>
+          ) : null}
         </div>
 
         <div className="mt-3 grid grid-cols-2 gap-2">
           <SecondaryAction onClick={handlePrevious} disabled={index === 0}>
-            이전 문제
+            이전 질문
           </SecondaryAction>
           <SecondaryAction
-            onClick={() => void handleNext()}
+            onClick={() => void handleAdvance()}
             disabled={!canGoNext}
           >
-            다음 문제
+            다음 질문
           </SecondaryAction>
         </div>
 
         <div className="hidden">
           <p className="text-xs text-ink/55">
-            마지막 학습 모드: {progress.preferences.lastMode}
-            {progress.resumeQuestionId ? ` / 이어풀기 ID: ${progress.resumeQuestionId}` : ""}
+            마지막 연습 모드: {progress.preferences.lastMode}
+            {progress.resumeQuestionId ? ` / 이어 연습 ID: ${progress.resumeQuestionId}` : ""}
           </p>
         </div>
 
@@ -666,19 +758,19 @@ export function StudyClient({
       {mobilePanelOpen ? (
         <div className="fixed inset-0 z-40 bg-black/30 lg:hidden" onClick={() => setMobilePanelOpen(false)}>
           <div
-            className="absolute inset-x-0 bottom-0 max-h-[78vh] overflow-y-auto rounded-t-[28px] bg-[#f8fbff] p-4 pb-28 shadow-[0_-18px_40px_rgba(16,35,63,.18)]"
+            className="absolute inset-x-0 bottom-0 max-h-[78vh] overflow-y-auto rounded-t-[14px] bg-[#f8fbff] p-4 pb-28 shadow-[0_-18px_40px_rgba(16,35,63,.18)]"
             onClick={(event) => event.stopPropagation()}
           >
-            <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-black/10" />
+            <div className="mx-auto mb-4 h-1.5 w-12 rounded-[6px] bg-black/10" />
             <div className="mb-4 flex items-center justify-between">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.24em] text-gold">Settings</p>
-                <p className="mt-1 font-serif text-xl text-ink">학습 설정</p>
+                <p className="mt-1 font-serif text-xl text-ink">연습 설정</p>
               </div>
               <button
                 type="button"
                 onClick={() => setMobilePanelOpen(false)}
-                className="rounded-full border border-black/10 px-3 py-1.5 text-xs font-medium text-ink/70"
+                className="rounded-[10px] border border-black/10 px-3 py-1.5 text-xs font-medium text-ink/70"
               >
                 닫기
               </button>
@@ -695,7 +787,6 @@ export function StudyClient({
                 solvedCount={solvedCountInCurrentMode}
                 progressValue={progressValue}
                 onModeSelect={handleModeSelect}
-                onReviewFilterSelect={handleReviewFilterSelect}
                 onOrderSelect={handleOrderSelect}
               />
             </div>
@@ -706,76 +797,106 @@ export function StudyClient({
   );
 }
 
-function modeLabel(mode: StudyMode) {
-  if (mode === "past") return "기출";
-  if (mode === "review") return "오답";
-  return "전체";
+function ActivityWorkspace({
+  question,
+  timerRunning,
+  timerCentiseconds,
+  submitted,
+  onComplete,
+  onStartTimer,
+  onPauseTimer,
+  onResetTimer
+}: {
+  question: Question;
+  timerRunning: boolean;
+  timerCentiseconds: number;
+  submitted: boolean;
+  onComplete: () => void;
+  onStartTimer: () => void;
+  onPauseTimer: () => void;
+  onResetTimer: () => void;
+}) {
+  if (question.activityType === "speaking") {
+    return (
+      <div className="mt-4 rounded-[10px] border border-black/10 bg-[#f8fbff] p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gold">Speaking Timer</p>
+            <p className="mt-1 font-serif text-4xl text-ink">{formatElapsed(timerCentiseconds)}</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <TimerAction onClick={timerRunning ? onPauseTimer : onStartTimer} disabled={submitted}>
+              {timerRunning ? "일시정지" : timerRunning || timerCentiseconds > 0 ? "계속" : "타이머 시작"}
+            </TimerAction>
+            <TimerAction onClick={onResetTimer} disabled={submitted || timerCentiseconds === 0}>
+              초기화
+            </TimerAction>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={onComplete}
+          disabled={submitted}
+          className={cn(
+            "mt-4 w-full rounded-[10px] border px-4 py-3 text-sm font-semibold transition",
+            submitted
+              ? "border-black/10 bg-black/5 text-ink/40"
+              : "border-pine/20 bg-pine text-white hover:bg-[#004b8d]"
+          )}
+        >
+          {submitted ? "응답 완료됨" : "응답 완료하고 샘플 답변 보기"}
+        </button>
+      </div>
+    );
+  }
+
+  return null;
 }
 
-function playFeedbackSound(type: Exclude<FeedbackState, null>) {
-  if (typeof window === "undefined") {
-    return;
-  }
+function formatElapsed(totalCentiseconds: number) {
+  const minutes = Math.floor(totalCentiseconds / 6000).toString().padStart(2, "0");
+  const seconds = Math.floor((totalCentiseconds % 6000) / 100).toString().padStart(2, "0");
+  const centiseconds = (totalCentiseconds % 100).toString().padStart(2, "0");
+  return `${minutes}:${seconds}:${centiseconds}`;
+}
 
-  const AudioContextClass = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+function activityLabel(question: Question) {
+  if (question.activityType === "translation-en-ko") return "영어 문장 -> 한국어";
+  if (question.activityType === "translation-ko-en") return "한국어 문장 -> 영어";
+  if (question.activityType === "vocab-en-ko") return "영단어 -> 한국어";
+  if (question.activityType === "vocab-ko-en") return "한국어 -> 영단어";
+  return "OPIc Speaking";
+}
 
-  if (!AudioContextClass) {
-    return;
-  }
+function normalizeLabel(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/vocabulary/g, "vocab")
+    .replace(/vocab|sentence/g, "")
+    .replace(/english|영어|영단어/g, "en")
+    .replace(/korean|한국어/g, "ko")
+    .replace(/to|->|→|-/g, "")
+    .replace(/\s+/g, "");
+}
 
-  try {
-    const context = new AudioContextClass();
-    const now = context.currentTime;
-    const gain = context.createGain();
-    gain.connect(context.destination);
-    gain.gain.setValueAtTime(0.0001, now);
+function shouldShowActivityBadge(question: Question) {
+  return normalizeLabel(question.sourceSection) !== normalizeLabel(activityLabel(question));
+}
 
-    if (type === "correct") {
-      const first = context.createOscillator();
-      const second = context.createOscillator();
+function solutionLabel(question: Question) {
+  return question.activityType === "speaking" ? "샘플 답변과 체크포인트" : "정답과 해설";
+}
 
-      first.type = "triangle";
-      second.type = "sine";
-      first.frequency.setValueAtTime(520, now);
-      second.frequency.setValueAtTime(780, now + 0.06);
-
-      first.connect(gain);
-      second.connect(gain);
-
-      gain.gain.exponentialRampToValueAtTime(0.05, now + 0.02);
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.34);
-
-      first.start(now);
-      first.stop(now + 0.16);
-      second.start(now + 0.06);
-      second.stop(now + 0.34);
-    } else {
-      const low = context.createOscillator();
-      const hit = context.createOscillator();
-
-      low.type = "sawtooth";
-      hit.type = "triangle";
-      low.frequency.setValueAtTime(210, now);
-      hit.frequency.setValueAtTime(165, now + 0.08);
-
-      low.connect(gain);
-      hit.connect(gain);
-
-      gain.gain.exponentialRampToValueAtTime(0.06, now + 0.015);
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.3);
-
-      low.start(now);
-      low.stop(now + 0.14);
-      hit.start(now + 0.08);
-      hit.stop(now + 0.3);
-    }
-
-    window.setTimeout(() => {
-      void context.close().catch(() => undefined);
-    }, 400);
-  } catch {
-    // Ignore audio playback failures; visual feedback still appears.
-  }
+function modeLabel(mode: StudyMode) {
+  if (mode === "speaking" || mode === "past") return "OPIc 모의시험";
+  if (mode === "sentence") return "문장";
+  if (mode === "sentence-en-ko") return "문장 EN→KO";
+  if (mode === "sentence-ko-en") return "문장 KO→EN";
+  if (mode === "vocab") return "단어";
+  if (mode === "vocab-en-ko") return "단어 EN→KO";
+  if (mode === "vocab-ko-en") return "단어 KO→EN";
+  if (mode === "review") return "다시 연습";
+  return "전체";
 }
 
 function hashSeed(seed: string) {
@@ -834,7 +955,6 @@ function SidebarContent({
   solvedCount,
   progressValue,
   onModeSelect,
-  onReviewFilterSelect,
   onOrderSelect
 }: {
   mode: StudyMode;
@@ -846,41 +966,35 @@ function SidebarContent({
   solvedCount: number;
   progressValue: number;
   onModeSelect: (mode: StudyMode) => void;
-  onReviewFilterSelect: (filter: ReviewFilter) => void;
   onOrderSelect: (orderMode: OrderMode) => void;
 }) {
   return (
     <>
-      <section className="rounded-[24px] border border-black/8 bg-white/80 p-4 shadow-soft">
+      <section className="rounded-[12px] border border-black/8 bg-white/80 p-4 shadow-soft">
         <p className="text-xs font-semibold uppercase tracking-[0.24em] text-gold">Mode</p>
-        <div className="mt-3 grid gap-2">
-          <ModeButton active={mode === "all"} onClick={() => onModeSelect("all")}>
-            전체 문제
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          <ModeButton active={mode === "speaking"} onClick={() => onModeSelect("speaking")} className="col-span-2">
+            OPIc 모의시험
           </ModeButton>
-          <ModeButton active={mode === "past"} onClick={() => onModeSelect("past")}>
-            기출만 보기
+          <ModeButton active={mode === "sentence-en-ko"} onClick={() => onModeSelect("sentence-en-ko")}>
+            [문장] 영어 → 한국어
           </ModeButton>
-          <ModeButton active={mode === "review"} onClick={() => onModeSelect("review")}>
-            오답 복습
+          <ModeButton active={mode === "sentence-ko-en"} onClick={() => onModeSelect("sentence-ko-en")}>
+            [문장] 한국어 → 영어
+          </ModeButton>
+          <ModeButton active={mode === "vocab-en-ko"} onClick={() => onModeSelect("vocab-en-ko")}>
+            [단어] 영어 → 한국어
+          </ModeButton>
+          <ModeButton active={mode === "vocab-ko-en"} onClick={() => onModeSelect("vocab-ko-en")}>
+            [단어] 한국어 → 영어
+          </ModeButton>
+          <ModeButton active={mode === "review"} onClick={() => onModeSelect("review")} className="col-span-2">
+            [복습] 모르는 것만
           </ModeButton>
         </div>
-
-        {mode === "review" ? (
-          <div className="mt-3 grid gap-2 sm:grid-cols-3">
-            <MiniButton active={reviewFilter === "active"} onClick={() => onReviewFilterSelect("active")}>
-              전체 오답
-            </MiniButton>
-            <MiniButton active={reviewFilter === "recent"} onClick={() => onReviewFilterSelect("recent")}>
-              최근 오답
-            </MiniButton>
-            <MiniButton active={reviewFilter === "past-only"} onClick={() => onReviewFilterSelect("past-only")}>
-              기출 오답
-            </MiniButton>
-          </div>
-        ) : null}
       </section>
 
-      <section className="rounded-[24px] border border-black/8 bg-white/80 p-4 shadow-soft">
+      <section className="rounded-[12px] border border-black/8 bg-white/80 p-4 shadow-soft">
         <p className="text-xs font-semibold uppercase tracking-[0.24em] text-gold">Order</p>
         <div className="mt-3 grid grid-cols-2 gap-2">
           <MiniButton active={orderMode === "sequential"} onClick={() => onOrderSelect("sequential")}>
@@ -892,7 +1006,7 @@ function SidebarContent({
         </div>
       </section>
 
-      <section className="rounded-[24px] border border-black/8 bg-white/80 p-4 shadow-soft">
+      <section className="rounded-[12px] border border-black/8 bg-white/80 p-4 shadow-soft">
         <div className="flex items-center justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-gold">Progress</p>
@@ -900,18 +1014,18 @@ function SidebarContent({
               {solvedCount} / {total}
             </p>
           </div>
-          <span className="rounded-full border border-pine/15 bg-pine/10 px-3 py-1 text-xs font-medium text-pine">
+          <span className="rounded-[10px] border border-pine/15 bg-pine/10 px-3 py-1 text-xs font-medium text-pine">
             {mode.toUpperCase()}
           </span>
         </div>
 
-        <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-mist">
-          <div className="h-full rounded-full bg-pine transition-all duration-300" style={{ width: `${progressValue}%` }} />
+        <div className="mt-3 h-1.5 overflow-hidden rounded-[6px] bg-mist">
+          <div className="h-full rounded-[6px] bg-pine transition-all duration-300" style={{ width: `${progressValue}%` }} />
         </div>
 
         <dl className="mt-3 grid gap-2 text-xs text-ink/70 sm:text-sm">
           <div className="flex items-center justify-between">
-            <dt>누적 정답률</dt>
+            <dt>완료율</dt>
             <dd className="font-medium text-ink">{toPercent(progress.accuracy)}</dd>
           </div>
           <div className="flex items-center justify-between">
@@ -919,13 +1033,13 @@ function SidebarContent({
             <dd className="font-medium text-ink">{index + 1}번</dd>
           </div>
           <div className="flex items-center justify-between">
-            <dt>active 오답</dt>
+            <dt>복습 목록</dt>
             <dd className="font-medium text-ink">{progress.activeReviewCount}</dd>
           </div>
         </dl>
 
         <div className="mt-4">
-          <ResetButton compact />
+          <StudyResetButtons mode={mode} reviewFilter={reviewFilter} compact />
         </div>
       </section>
     </>
@@ -935,21 +1049,24 @@ function SidebarContent({
 function ModeButton({
   active,
   onClick,
-  children
+  children,
+  className
 }: {
   active: boolean;
   onClick: () => void;
   children: React.ReactNode;
+  className?: string;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
       className={cn(
-        "flex w-full items-center justify-between rounded-2xl border px-3.5 py-2.5 text-left text-sm transition",
+        "flex min-h-[42px] w-full items-center justify-between rounded-[10px] border px-3.5 py-2.5 text-left text-sm transition",
         active
           ? "border-pine bg-pine/[0.09] text-pine"
-          : "border-black/8 bg-sand/45 text-ink/70 hover:border-pine/18 hover:text-pine"
+          : "border-black/8 bg-sand/45 text-ink/70 hover:border-pine/18 hover:text-pine",
+        className
       )}
     >
       {children}
@@ -971,7 +1088,7 @@ function MiniButton({
       type="button"
       onClick={onClick}
       className={cn(
-        "rounded-full px-3 py-1.5 text-xs font-medium transition",
+        "rounded-[10px] px-3 py-1.5 text-xs font-medium transition",
         active ? "bg-pine text-white" : "bg-black/5 text-ink/65 hover:bg-pine/10 hover:text-pine"
       )}
     >
@@ -980,12 +1097,38 @@ function MiniButton({
   );
 }
 
+function PostAnswerActions({
+  onHide,
+  onCheckAgain
+}: {
+  onHide: () => void;
+  onCheckAgain: () => void;
+}) {
+  return (
+    <div className="grid gap-2 sm:grid-cols-2">
+      <button
+        type="button"
+        onClick={onHide}
+        className="rounded-[10px] border border-[#f0c9c7] bg-[#fff4f3] px-4 py-3 text-sm font-medium text-[#a86666] transition hover:border-[#e9b9b7] hover:bg-[#ffecea]"
+      >
+        Don&apos;t show me again
+      </button>
+      <button
+        type="button"
+        onClick={onCheckAgain}
+        className="rounded-[10px] border border-[#b9d8f2] bg-[#f0f8ff] px-4 py-3 text-sm font-medium text-[#346f9f] transition hover:border-[#9fc9ec] hover:bg-[#e4f3ff]"
+      >
+        I want to check it again
+      </button>
+    </div>
+  );
+}
+
 function RevealCard({
   label,
   value,
   enabled,
   disabled,
-  idleText = "터치해서 보기",
   readyText = "열림",
   onToggle
 }: {
@@ -993,7 +1136,6 @@ function RevealCard({
   value: React.ReactNode;
   enabled: boolean;
   disabled: boolean;
-  idleText?: string;
   readyText?: string;
   onToggle: () => void;
 }) {
@@ -1003,19 +1145,21 @@ function RevealCard({
       disabled={disabled}
       onClick={onToggle}
       className={cn(
-        "min-h-20 w-full rounded-[20px] border px-4 py-3.5 text-left transition",
+        "flex min-h-20 w-full flex-col items-stretch justify-start rounded-[10px] border px-4 py-3.5 text-left align-top transition-colors",
         "bg-sand/60",
         enabled ? "border-pine/20 bg-pine/[0.08]" : "border-black/8",
         disabled && "cursor-not-allowed border-dashed opacity-55"
       )}
       >
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex w-full items-start justify-between gap-3">
         <p className="text-base font-semibold text-ink">{label}</p>
         <span className="text-[11px] text-ink/45">{enabled ? readyText : "닫힘"}</span>
       </div>
-      <div className={cn("mt-2 text-sm leading-6 text-ink/72", !enabled && "line-clamp-1")}>
-        {enabled ? value : idleText}
-      </div>
+      {enabled ? (
+        <div className="mt-2 text-sm leading-6 text-ink/72">
+          {value}
+        </div>
+      ) : null}
     </button>
   );
 }
@@ -1035,7 +1179,33 @@ function SecondaryAction({
       onClick={onClick}
       disabled={disabled}
       className={cn(
-        "w-full rounded-2xl border px-3 py-2.5 text-sm font-medium transition",
+        "w-full rounded-[10px] border px-3 py-2.5 text-sm font-medium transition",
+        disabled
+          ? "border-dashed border-black/10 bg-black/5 text-ink/35"
+          : "border-black/10 bg-white text-ink/75 hover:border-pine/30 hover:text-pine"
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+function TimerAction({
+  onClick,
+  disabled,
+  children
+}: {
+  onClick: () => void;
+  disabled?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={cn(
+        "rounded-[10px] border px-3 py-2 text-sm font-medium transition",
         disabled
           ? "border-dashed border-black/10 bg-black/5 text-ink/35"
           : "border-black/10 bg-white text-ink/75 hover:border-pine/30 hover:text-pine"

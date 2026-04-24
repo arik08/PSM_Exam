@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "PSM Study",
-  description: "PSM 문제 풀이와 오답 복습을 위한 학습용 웹앱"
+  title: "OPIc English Coach",
+  description: "OPIc 영어 말하기 연습과 복습을 위한 학습용 웹앱"
 };
 
 export default function RootLayout({

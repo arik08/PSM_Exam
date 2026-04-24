@@ -1,12 +1,14 @@
 {
-  "name": "psm-exam-study",
+  "name": "opic-english-study",
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev --webpack",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "cleanup:explanations": "node scripts/cleanup-question-explanations.js",
+    "enhance:explanations": "node scripts/enhance-question-explanations.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.57.4",

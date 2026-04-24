@@ -14,7 +14,7 @@ export function StatCard({
   return (
     <article
       className={cn(
-        "rounded-[28px] border border-black/8 bg-white/78 p-5 shadow-soft backdrop-blur",
+        "rounded-[14px] border border-black/8 bg-white/78 p-5 shadow-soft backdrop-blur",
         accent === "pine" && "border-pine/20 bg-pine/[0.08]",
         accent === "rose" && "border-rose/15 bg-rose/[0.07]"
       )}

@@ -14,7 +14,7 @@ export function ModeLink({
   return (
     <Link
       href={href}
-      className="group rounded-[28px] border border-black/8 bg-white/78 p-4 shadow-soft transition hover:-translate-y-1 hover:border-pine/25 hover:bg-white sm:p-5"
+      className="group rounded-[14px] border border-black/8 bg-white/78 p-4 shadow-soft transition hover:-translate-y-1 hover:border-pine/25 hover:bg-white sm:p-5"
     >
       <p className="text-xs font-semibold uppercase tracking-[0.24em] text-gold">{badge}</p>
       <h2 className="mt-2 font-serif text-2xl text-ink sm:text-[1.8rem]">{title}</h2>
